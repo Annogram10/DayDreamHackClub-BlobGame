@@ -1,0 +1,166 @@
+[gd_scene load_steps=8 format=3 uid="uid://demep833r44w5"]
+
+[ext_resource type="Texture2D" uid="uid://bi5nluf0uq6r1" path="res://assets/Untitled Design Presentation (1).png" id="1_3vyb7"]
+
+[sub_resource type="GDScript" id="GDScript_3vyb7"]
+script/source = "extends CharacterBody2D
+
+# --- Constants ---
+const BASE_SPEED: float = 100.0
+const BASE_JUMP: float = -600.0
+const GRAVITY: float = 1400.0
+const MAX_HOLD: float = 1.0
+const MIN_SLIME: float = 0.05
+
+# --- Exported Variables ---
+@export var slime_size: float = 0.25
+@export var chunk_scene: PackedScene
+
+# --- Member Variables ---
+var space_held_time: float = 0.0
+var is_holding: bool = false
+var _player_orig_extents: Vector2 = Vector2.ZERO
+
+# --- Node References ---
+@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
+@onready var player_collision: CollisionShape2D = $CollisionShape2D
+
+# --- Initialization ---
+func _ready() -> void:
+	# Set initial visual scale
+	sprite.scale = Vector2.ONE * slime_size
+
+	# Store original extents for scaling collision shape later
+	if player_collision.shape is RectangleShape2D:
+		_player_orig_extents = player_collision.shape.extents
+
+	# Remove any pre-existing chunks
+	var root: Node = get_tree().current_scene
+	for child in root.get_children():
+		if child.has_method(\"spawn_at\"):
+			child.queue_free()
+
+# --- Physics Update ---
+func _physics_process(delta: float) -> void:
+	# Apply gravity
+	if not is_on_floor():
+		velocity.y += GRAVITY * delta
+	else:
+		velocity.y = 0.0
+
+	# Horizontal movement (adjusts with slime size)
+	var speed: float = BASE_SPEED / max(slime_size, 0.01)
+	speed = clamp(speed, 120.0, 1600.0)
+	var input_dir: float = Input.get_axis(\"ui_left\", \"ui_right\")
+	velocity.x = input_dir * speed
+
+	# Flip sprite based on direction
+	if velocity.x != 0:
+		sprite.flip_h = velocity.x < 0
+
+	# Jump (scales with size)
+	var jump_velocity: float = BASE_JUMP * (0.5 + slime_size)
+	if Input.is_action_just_pressed(\"ui_up\") and is_on_floor():
+		velocity.y = jump_velocity
+
+	move_and_slide()
+	_update_player_collision()
+
+# --- Non-physics Update ---
+func _process(delta: float) -> void:
+	if Input.is_action_just_pressed(\"split_slime\"):
+		is_holding = true
+		space_held_time = 0.0
+
+	if is_holding:
+		space_held_time += delta
+		var hold_frac: float = clamp(space_held_time / MAX_HOLD, 0.0, 1.0)
+		var visual_scale: float = max(slime_size * (1.0 - 0.5 * hold_frac), MIN_SLIME)
+		sprite.scale = Vector2.ONE * visual_scale
+
+	if Input.is_action_just_released(\"split_slime\") and is_holding:
+		is_holding = false
+		_perform_split_and_spawn(space_held_time)
+		space_held_time = 0.0
+
+# --- Perform Split ---
+func _perform_split_and_spawn(held_time: float) -> void:
+	if chunk_scene == null:
+		return
+
+	var fraction: float = clamp(held_time / MAX_HOLD, 0.0, 1.0)
+	if fraction <= 0.02:
+		return  # Too small to split
+
+	var split_amount: float = slime_size * fraction
+	var remaining: float = slime_size - split_amount
+	if remaining < MIN_SLIME:
+		return  # Would shrink too far
+
+	# Instantiate new slime chunk
+	var chunk: Node = chunk_scene.instantiate()
+	var root: Node = get_tree().current_scene
+	root.add_child(chunk)
+
+	# Spawn the chunk at current position with the split size
+	if chunk.has_method(\"spawn_at\"):
+		chunk.spawn_at(global_position, split_amount)
+
+	# Apply new size to player
+	slime_size = remaining
+
+	# Maintain current visual scale ratio after shrink
+	var current_frac: float = clamp(space_held_time / MAX_HOLD, 0.0, 1.0)
+	var visual_scale: float = max(slime_size * (1.0 - 0.5 * current_frac), MIN_SLIME)
+	sprite.scale = Vector2.ONE * visual_scale
+
+	_update_player_collision()
+
+# --- Collision Shape Resizer ---
+func _update_player_collision() -> void:
+	if player_collision.shape is RectangleShape2D:
+		player_collision.shape.extents = _player_orig_extents * slime_size
+"
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_g2els"]
+atlas = ExtResource("1_3vyb7")
+region = Rect2(35, 256, 164, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_qhqgy"]
+atlas = ExtResource("1_3vyb7")
+region = Rect2(199, 256, 164, 128)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_dqkch"]
+atlas = ExtResource("1_3vyb7")
+region = Rect2(363, 256, 164, 128)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_g2els"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_g2els")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_qhqgy")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_dqkch")
+}],
+"loop": true,
+"name": &"default",
+"speed": 3.0
+}]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_3vyb7"]
+size = Vector2(102, 75)
+
+[node name="Player" type="CharacterBody2D"]
+script = SubResource("GDScript_3vyb7")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
+sprite_frames = SubResource("SpriteFrames_g2els")
+autoplay = "default"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(-6, -2.5)
+shape = SubResource("RectangleShape2D_3vyb7")
